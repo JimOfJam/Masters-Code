@@ -1,7 +1,7 @@
 import numpy as np 
 import matplotlib.pyplot as plt
 import timeit
-import scipy as sp
+import scipy.linalg as sp
 
 np.set_printoptions(precision=4,suppress=True)
 j = 0+1j
@@ -68,10 +68,12 @@ class FermionicSpace:
 
         
                 
-        self.majorana = []
+        self.p = []
+        self.q = []
         for i in range(n):
-            self.majorana.append((self.lowering[i]+self.raising[i])/np.sqrt(2))
-            self.majorana.append((self.lowering[i]-self.raising[i])*j/np.sqrt(2))
+            self.q.append((self.lowering[i] + self.raising[i])/(np.sqrt(2)))
+            self.p.append((self.lowering[i] - self.raising[i])/(j*np.sqrt(2)))
+        self.majorana = self.q+self.p
         
         self.J0 = np.zeros((2*n,2*n),dtype="complex_")
         for i in range(2*n):
@@ -143,7 +145,7 @@ class FermionicSpace:
             for k in range(2*self.dof):
                 hamiltonianLie = hamiltonianLie + j/2*lie[i][k]*prodN([self.majorana[i],self.majorana[k]])
         
-        gaussianUnitary = sp.linalg.expm(-j*hamiltonianLie)
+        gaussianUnitary = sp.expm(-j*hamiltonianLie)
 
         self.states.append(np.matmul(gaussianUnitary,self.groundState))
 
@@ -173,18 +175,19 @@ class FermionicSpace:
         return prodN([adjoint(state),self.majorana[a],self.majorana[b],self.groundState])[0][0]
     
 
+class fermionicPhaseSpace:
+    def __init__(self,metric,storageType="covariance"):
+        self.storageType = storageType
+        self.metric = metric 
+        self.gaussians = []
+        self.metricInv = np.linalg.inv(metric)
     
+    def addGaussian(self,covariance):
+        self.gaussians.append(covariance)
 
-
-"""times = []
-for n in range(1,11):
-    print(n)
-    space = FermionicSpace(n)
-    space.addState()
-    start = timeit.default_timer()
-    space.correlator(space.states[0])
-    stop= timeit.default_timer()
-    times.append(stop-start)
-
-plt.plot(range(1,11),times)
-plt.show()"""
+    def complexStructure(self,covariance):
+        return np.matmul(covariance,self.metricInv)
+    
+    def covariance(self,complexStructure):
+        return np.matmul(complexStructure,self.metric)
+    
