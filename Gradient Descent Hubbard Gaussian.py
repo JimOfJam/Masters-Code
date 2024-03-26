@@ -7,6 +7,8 @@ import timeit
 i = 0+1j
 n = 100
 
+blank = "                                                                                                    "
+
 # Helps us index the Majorana modes correctly
 def index(j,sigma,k):
     return int(j % (n/2) + sigma*(n/2) + k*n)
@@ -54,7 +56,7 @@ for v in basisK:
     v = v/np.sqrt(lieProduct(v,v))
 
 
-
+print(blank,end="\r")
 
 
 # This is the function to be optimised 
@@ -99,6 +101,7 @@ for j in range(maxIterations):
     print("Progress: " + str(j/maxIterations*100) + "%, Current epsilon: " + str(epsilon) + ", Current energy: " + str(energy),end="\r") 
     energies.append(energy)
 
+print(blank,end="\r")
 stoptime = timeit.default_timer()
 
 print("Method terminated in",stoptime-starttime,"seconds.")
