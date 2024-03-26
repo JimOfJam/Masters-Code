@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import timeit 
 
 i = 0+1j
-n = 50
+n = 100
 
 # Helps us index the Majorana modes correctly
 def index(j,sigma,k):
@@ -43,7 +43,13 @@ def RtoT(vector):
 def lieProduct(A,B):
     return np.trace(np.matmul(A,B.T))
 
-basisK = [RtoT(v) for v in basis]
+basisK = []
+progress = 0
+for j in range(len(basis)):
+    if j/lieDim*100 > progress + 0.1:
+        progress += 0.1
+        print("Constructing basis of Lie algebra. " + str(np.floor(j/lieDim*100))+ "% complete.",end="\r")
+    basisK.append(RtoT(basis[j]))
 for v in basisK:
     v = v/np.sqrt(lieProduct(v,v))
 
@@ -73,9 +79,9 @@ epsilon = 10
 
 energies = []
 
-
+maxIterations = 50
 starttime = timeit.default_timer()
-for j in range(50):
+for j in range(maxIterations):
     grad = gradient(Omega)
     candidate = vary(Omega,RtoT(grad),-epsilon)
     candidateEnergy = expectationValue(candidate).real
@@ -88,8 +94,11 @@ for j in range(50):
         break 
     else:
         epsilon = epsilon*0.5
-
     energies.append(energy)
+
+    print("Progress: " + str(j/maxIterations*100) + "%, Current epsilon: " + str(epsilon) + ", Current energy: " + str(energy),end="\r") 
+    energies.append(energy)
+
 stoptime = timeit.default_timer()
 
 print("Method terminated in",stoptime-starttime,"seconds.")
