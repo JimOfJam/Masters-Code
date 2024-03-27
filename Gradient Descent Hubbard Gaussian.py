@@ -1,11 +1,12 @@
 import numpy as np
 import gaussian as g
 import scipy.linalg
+import scipy.sparse 
 import matplotlib.pyplot as plt 
 import timeit 
 
 i = 0+1j
-n = 100
+n = 200
 
 blank = "                                                                                                    "
 
@@ -15,45 +16,48 @@ def index(j,sigma,k):
 
 # The h_{ab} matrix which contracts with the Majorana modes to produce the Hamiltonian
 h = np.zeros((2*n,2*n))
+rows = []
+columns = []
+data = []
 for j in range(int(n/2)):
     for sigma in range(2):
-        h[index(j,sigma,0)][index(j+1,sigma,1)] = -1
-        h[index(j,sigma,1)][index(j+1,sigma,0)] = 1
-        h[index(j+1,sigma,0)][index(j,sigma,1)] = -1
-        h[index(j+1,sigma,1)][index(j,sigma,0)] = 1
-h = 0.5*(h - h.T)
+        rows += [index(j,sigma,0),index(j,sigma,1),index(j+1,sigma,0),index(j+1,sigma,1)]
+        columns += [index(j+1,sigma,1),index(j+1,sigma,0),index(j,sigma,1),index(j,sigma,0)]
+        data += [-1,1,-1,1]
+h = scipy.sparse.csc_array((data,(rows,columns)))
+h = 0.5*(h - h.transpose())
 
 
 # Define the basis elements of the Lie algebra 
-basis = []
+basisK = []
 lieDim = n*(2*n-1)
-for j in range(lieDim):
-    entries = np.zeros((lieDim))
-    entries[j] = 1
-    basis.append(entries)
+count = 0
+for j in range(2*n):
+    for k in range(j+1,2*n):
+        rows = [j,k]
+        columns = [k,j]
+        data = [1,-1]
+        basisK.append(scipy.sparse.csc_array((data,(rows,columns)),shape=(2*n,2*n)))
+
+        count += 1
+        if count % print("Setting up the basis of the Lie algebra...")
+
+for v in basisK:
+    v = v/(v@(v.transpose())).trace()
 
 def RtoT(vector):
     index = 0
     K = np.zeros((2*n,2*n))
     for j in range(2*n):
         for k in range(j+1,2*n):
-            K[j][k] = vector[index]
-            K[k][j] = -vector[index]
+            K[j,k] = vector[index]
+            K[k,j] = -vector[index]
             index += 1
     return K 
 
 def lieProduct(A,B):
     return np.trace(np.matmul(A,B.T))
 
-basisK = []
-progress = 0
-for j in range(len(basis)):
-    if j/lieDim*100 > progress + 0.1:
-        progress += 0.1
-        print("Constructing basis of Lie algebra. " + str(np.floor(j/lieDim*100))+ "% complete.",end="\r")
-    basisK.append(RtoT(basis[j]))
-for v in basisK:
-    v = v/np.sqrt(lieProduct(v,v))
 
 
 print(blank,end="\r")
@@ -61,12 +65,12 @@ print(blank,end="\r")
 
 # This is the function to be optimised 
 def expectationValue(x):
-    return -0.25*np.trace(np.matmul(h,x))
+    return -0.25*np.trace(h@x)
 
 def gradient(x):
     grad = np.zeros(lieDim)
     for j in range(lieDim):
-        grad[j] = expectationValue(np.matmul(basisK[j],x)+np.matmul(x,basisK[j].T))
+        grad[j] = expectationValue(basisK[j]@x+x@basisK[j].T)
     return grad
 
 def vary(x,K,epsilon):
@@ -91,7 +95,7 @@ for j in range(maxIterations):
     if candidateEnergy < energy:
         Omega = candidate
         energy = candidateEnergy 
-    elif epsilon < 10**(-10):
+    elif epsilon < 10**(-5):
         print("Epsilon reached threshold after",j+1,"iterations.")
         break 
     else:
@@ -107,8 +111,8 @@ stoptime = timeit.default_timer()
 print("Method terminated in",stoptime-starttime,"seconds.")
 print("Final energy:",energy)
 print("Final epsilon:",epsilon)
-print("Ground state covariance matrix:")
-print(Omega)
+#print("Ground state covariance matrix:")
+#print(Omega)
 
 plt.plot(range(len(energies)),energies)
 plt.show()
