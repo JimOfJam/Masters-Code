@@ -1,0 +1,199 @@
+import gaussian as g
+import numpy as np
+import scipy.sparse
+import scipy.linalg
+import matplotlib.pyplot as plt
+
+
+
+# Perform the method of steepest descent
+    
+def gradDescHilb(n,t,U,iterations,initialState=None,epsilon = 1):
+
+    # This function will help keep our indices notationally consistent with the Wikipedia page for the Hubbard model
+    def index(i,sigma):
+        return int(i%(n/2)+sigma*(n/2))
+
+    space = g.FermionicSpace(n)
+
+    space.hamiltonian = scipy.sparse.csc_array(([],([],[])),shape=(space.dimension,space.dimension),dtype="complex_")
+    for i in range(int(n/2)):
+        for sigma in range(2):
+            firstterm = space.raising[index(i,sigma)] @ space.lowering[index(i+1,sigma)]
+            space.hamiltonian += -t*(firstterm + g.adjoint(firstterm))
+        space.hamiltonian += U * space.raising[index(i,0)] @ space.lowering[index(i,0)] @ space.raising[index(i,1)] @ space.lowering[index(i,1)]
+
+
+    # Define the basis vectors of the Hilbert space
+    basis = []
+    for i in range(space.dimension):
+        v = np.zeros((space.dimension,1))
+        v[i] = 1
+        basis.append(v)
+
+    expectationValue = lambda x : g.prodN([g.adjoint(x),space.hamiltonian,x])
+
+    if initialState == None:
+        psi = space.randomState()
+    else:
+        psi = initialState
+    
+    energy = expectationValue(psi).real
+    epsilon = 1
+
+    for i in range(iterations):
+        gradient = np.array([g.prodN([g.adjoint(basis[k]),space.hamiltonian,psi])[0] for k in range(space.dimension)])
+        candidate = psi - epsilon*gradient 
+        candidate = candidate/np.linalg.norm(candidate)
+        candidateEnergy = expectationValue(candidate).real
+        if candidateEnergy < energy:
+            psi = candidate
+            energy = candidateEnergy 
+        else:
+            epsilon = epsilon*0.5
+            if epsilon < 10**(-10):
+                break
+    
+    return energy
+
+
+    
+
+
+def vary(x,K,epsilon):
+    return g.prodN([scipy.linalg.expm(epsilon*K),x,scipy.linalg.expm(epsilon*(K.T))])
+
+def gradDescGauss(n,t,U,iterations,initialState = None,epsilon = 10):
+
+    # Helps us index the Majorana modes correctly.
+    def index2(j,sigma,k):
+        if sigma == "up":
+            sigma = 1
+        elif sigma == "down":
+            sigma = 0
+        if k == "q":
+            k = 0
+        elif k == "p":
+            k = 1
+        return int(j % (n/2) + sigma*(n/2) + k*n)
+
+
+    # The h1_{ab} matrix which contracts with the Majorana modes to produce the quadratic part of the Hamiltonian
+    rows = []
+    columns = []
+    data = []
+    for j in range(int(n/2)):
+        for sigma in range(2):
+            rows += [index2(j,sigma,0),index2(j,sigma,1),index2(j+1,sigma,0),index2(j+1,sigma,1)]
+            columns += [index2(j+1,sigma,1),index2(j+1,sigma,0),index2(j,sigma,1),index2(j,sigma,0)]
+            data += [-t,t,-t,t]
+    h1 = scipy.sparse.csc_array((data,(rows,columns)),shape=(2*n,2*n))
+
+    # The h2_{abcd} tensor that produces the quartic part of the Hamiltonian
+    sparseh2 = []
+    for k in range(int(n/2)):
+        sparseh2 += [
+            [index2(k,'up','q'),index2(k,'up','q'),index2(k,'down','q'),index2(k,'down','q'),1.0],
+            [index2(k,'up','q'),index2(k,'up','q'),index2(k,'down','q'),index2(k,'down','p'),1.0j],
+            [index2(k,'up','q'),index2(k,'up','q'),index2(k,'down','p'),index2(k,'down','q'),-1.0j],
+            [index2(k,'up','q'),index2(k,'up','q'),index2(k,'down','p'),index2(k,'down','p'),1.0],
+            [index2(k,'up','q'),index2(k,'up','p'),index2(k,'down','q'),index2(k,'down','q'),1.0j],
+            [index2(k,'up','q'),index2(k,'up','p'),index2(k,'down','q'),index2(k,'down','p'),-1.0],
+            [index2(k,'up','q'),index2(k,'up','p'),index2(k,'down','p'),index2(k,'down','q'),1.0],
+            [index2(k,'up','q'),index2(k,'up','p'),index2(k,'down','p'),index2(k,'down','p'),1.0j],
+            [index2(k,'up','p'),index2(k,'up','q'),index2(k,'down','q'),index2(k,'down','q'),-1.0j],
+            [index2(k,'up','p'),index2(k,'up','q'),index2(k,'down','q'),index2(k,'down','p'),1.0],
+            [index2(k,'up','p'),index2(k,'up','q'),index2(k,'down','p'),index2(k,'down','q'),-1.0],
+            [index2(k,'up','p'),index2(k,'up','q'),index2(k,'down','p'),index2(k,'down','p'),-1.0j],
+            [index2(k,'up','p'),index2(k,'up','p'),index2(k,'down','q'),index2(k,'down','q'),1.0],
+            [index2(k,'up','p'),index2(k,'up','p'),index2(k,'down','q'),index2(k,'down','p'),1.0j],
+            [index2(k,'up','p'),index2(k,'up','p'),index2(k,'down','p'),index2(k,'down','q'),-1.0j],
+            [index2(k,'up','p'),index2(k,'up','p'),index2(k,'down','p'),index2(k,'down','p'),1.0]
+        ]
+
+    # This is the function to be optimised 
+    def expectationValue(x):
+        C = 0.5*(np.eye(2*n)+1.0j*x)
+        # Constant shift 
+        value = 0
+        # Quadratic contribution
+        value += 0.25*np.trace(h1 @ x)
+        # Quartic contribution
+        newpart = 0
+        for row in sparseh2:
+            a = row[0]; b = row[1]; c = row[2]; d = row[3]; h = row[4]
+            newpart += 0.25*U*h*(C[a][b]*C[c][d] - C[a][c]*C[b][d] + C[a][d]*C[b][c])
+        value += newpart 
+        return value.real
+
+
+    # Define the basis elements of the Lie algebra 
+    basisK = []
+    lieDim = n*(2*n-1)
+    for j in range(2*n):
+        for k in range(j+1,2*n):
+            rows = [j,k]
+            columns = [k,j]
+            data = [1,-1]
+            basisK.append(scipy.sparse.csc_array((data,(rows,columns)),shape=(2*n,2*n)))
+    for v in basisK:
+        v = v/(v @ (v.transpose())).trace()
+
+    def gradient(x):
+        grad = np.zeros(lieDim,dtype="complex_")
+        C = np.eye(2*n,dtype="complex_") + 1j*x
+        for j in range(lieDim):
+            variance = basisK[j] @ x + x @ basisK[j].T
+            grad[j] = 0.25*np.trace(h1 @ variance)
+            for row in sparseh2:
+                a = row[0]; b = row[1]; c = row[2]; d = row[3]; h = row[4]
+                grad[j] += 1/4*h*(variance[a][b]*C[c][d] + C[a][b]*variance[c][d] - variance[a][c]*C[b][d] - C[a][c]*variance[b][d] + variance[a][d]*C[b][c] + C[a][d]*variance[b][c])
+        return grad
+    
+    # Takes a list of coefficients as input. Outputs the Lie algebra element corresponding to those coefficients. 
+    def RtoT(vector):
+        index = 0
+        K = np.zeros((2*n,2*n),dtype="complex")
+        for j in range(2*n):
+            for k in range(j+1,2*n):
+                K[j,k] = vector[index]
+                K[k,j] = -vector[index]
+                index += 1
+        return K 
+
+
+    if initialState == None:
+        Omega = np.block([[np.zeros((n,n)),np.eye(n)],[-np.eye(n),np.zeros((n,n))]])
+    else:
+        Omega = initialState
+    # K is a random Lie algebra element
+    K = RtoT(np.random.rand(lieDim))
+    #Omega is the corresponding random group element
+    Omega = vary(Omega,K,100)
+
+    energy = expectationValue(Omega)
+    epsilon = 10
+
+    for j in range(iterations):
+        grad = gradient(Omega).real
+        candidate = vary(Omega,-RtoT(grad),epsilon)
+        candidateEnergy = expectationValue(candidate)
+
+        if candidateEnergy < energy:
+            Omega = candidate
+            energy = candidateEnergy
+        else:
+            epsilon = epsilon*0.5
+
+    return energy
+
+gaussian = []
+hilbert = []
+error = []
+for U in np.linspace(0,5,500):
+    gaussian.append(gradDescGauss(8,1,U,20))
+    hilbert.append(gradDescHilb(8,1,U,20))
+    error.append(np.abs(gaussian[-1]-hilbert[-1]))
+
+plt.plot(np.linspace(0,2,100),error)
+plt.show()
