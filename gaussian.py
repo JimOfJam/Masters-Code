@@ -2,29 +2,30 @@ import numpy as np
 import matplotlib.pyplot as plt
 import timeit
 import scipy.linalg as sp
+import scipy.sparse as sparse
 
 np.set_printoptions(precision=4,suppress=True)
 j = 0+1j
 
-paulix = np.array([[0,1],[1,0]],dtype='complex_')
-pauliy = np.array([[0,-j],[j,0]],dtype='complex_')
-pauliz = np.array([[1,0],[0,-1]],dtype='complex_')
-paulip = np.array([[0,1],[0,0]],dtype='complex_')
-paulim = np.array([[0,0],[1,0]],dtype='complex_')
+paulix = sparse.csc_array([[0,1],[1,0]],dtype='complex_')
+pauliy = sparse.csc_array([[0,-j],[j,0]],dtype='complex_')
+pauliz = sparse.csc_array([[1,0],[0,-1]],dtype='complex_')
+paulip = sparse.csc_array([[0,1],[0,0]],dtype='complex_')
+paulim = sparse.csc_array([[0,0],[1,0]],dtype='complex_')
 
 def innerProd(a,b):
-    return np.matmul(adjoint(a),b)[0][0]
+    return (adjoint(a)@b)[0][0]
 
 def kronN(list):
     result = list[0]
     for i in range(1,len(list)):
-        result = np.kron(result,list[i])
+        result = sparse.kron(result,list[i])
     return result
 
 def prodN(list):
     result = list[0]
     for i in range(1,len(list)):
-        result = np.matmul(result,list[i])
+        result = result @ list[i]
     return result 
 
 def randomC():
@@ -116,20 +117,20 @@ class FermionicSpace:
     def correlator(self,a,b,state):
         z = []
         for i in range(2*self.dof):
-            z.append(prodN([adjoint(state),self.majorana[i],state])[0][0])
+            z.append(prodN([adjoint(state),self.majorana[i],state]))
         
-        c = prodN([adjoint(state),self.majorana[a]-z[a]*np.eye(self.dimension),self.majorana[b]-z[b]*np.eye(self.dimension),state])[0][0]
+        c = prodN([adjoint(state),self.majorana[a]-z[a]*np.eye(self.dimension),self.majorana[b]-z[b]*np.eye(self.dimension),state])
         return c
     
     def correlatorMatrix(self,state):
         z = []
         for i in range(2*self.dof):
-            z.append(prodN([adjoint(state),self.majorana[i],state])[0][0])
+            z.append(prodN([adjoint(state),self.majorana[i],state]))
         
         c = np.zeros((2*self.dof,2*self.dof),dtype="complex_")
         for i in range(2*self.dof):
             for k in range(2*self.dof):
-                c[i][k] = prodN([adjoint(state),self.majorana[i]-z[i]*np.eye(self.dimension),self.majorana[k]-z[k]*np.eye(self.dimension),state])[0][0]
+                c[i][k] = prodN([adjoint(state),self.majorana[i]-z[i]*np.eye(self.dimension),self.majorana[k]-z[k]*np.eye(self.dimension),state])
         return c
     
     def addGaussian(self,lie = None):
@@ -191,3 +192,15 @@ class fermionicPhaseSpace:
     def covariance(self,complexStructure):
         return np.matmul(complexStructure,self.metric)
     
+
+
+
+
+
+
+
+
+
+
+
+
