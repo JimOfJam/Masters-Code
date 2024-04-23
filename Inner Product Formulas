@@ -1,8 +1,9 @@
 import numpy as np
 import scipy.linalg as sp
 import gaussian 
+import timeit
 
-n = 4
+n = 8
 rank = 1
 
 Omega0 = np.block([[np.zeros((n,n)),np.eye(n)],[-np.eye(n),np.zeros((n,n))]])
@@ -81,20 +82,19 @@ def buildingBlock2(M,a,b):
     return 1j*0.5 * r0(T,theta)*result
 
 
-# Building blocks of generalised Wick's theorem for quartic terms
+# Building blocks of generalised Wick's theorem for quartic terms. Verified. 
 def buildingBlock4(M,a,b,c,d):
     decomp = cartan(M)
     T = decomp[0]
     theta = decomp[2]
     R1 = R(T)
-    C = C2(M)
     result = 0
     for i in range(2*n):
         for j in range(2*n):
             for k in range(2*n):
                 for l in range(2*n):
                     result += R1[a,i] * R1[b,j] * R1[c,k] * R1[d,l] * vacuumCorrelator[i,j,k,l]
-    return r0(T,theta) * result
+    return 0.25*r0(T,theta) * result
 
 
 space = gaussian.FermionicSpace(n)
@@ -209,5 +209,50 @@ for i in range(2*n):
 
 M1 = groupElem()
 M2 = groupElem()
-print(vacuum.T @ U(np.linalg.inv(M1)) @ space.majorana[1] @ space.majorana[2] @ space.majorana[3] @ space.majorana[4] @ U(M2) @ vacuum)
+
+# Direct calculation <J1|....|J2>
+#print(vacuum.T @ U(np.linalg.inv(M1)) @ space.majorana[1] @ space.majorana[2] @ space.majorana[3] @ space.majorana[4] @ U(M2) @ vacuum)
+
+"""starttime = timeit.default_timer()
 print(genWicks4(M1,M2,1,2,3,4))
+endtime = timeit.default_timer()
+print(endtime - starttime)"""
+
+
+def genWicks4Full(M1,M2,a,b,c,d):
+    deltaM = np.linalg.inv(M1) @ M2
+    T = cartan(deltaM)[0]
+    theta = cartan(deltaM)[2]
+    R1 = R(T)
+    result = 0
+    # Move the bBlock calculations here so that we aren't wasting computing power on calculating the same array elements all the time
+    for i in range(2*n):
+        for j in range(2*n):
+            for k in range(2*n):
+                for l in range(2*n):
+                    bBlock = np.zeros((2*n,2*n,2*n,2*n),dtype="complex_")
+                    for m in range(2*n):
+                        for o in range(2*n):
+                            for p in range(2*n):
+                                for q in range(2*n):
+                                    bBlock[i,j,k,l] += R1[i,m] * R1[j,o] * R1[k,p] * R1[l,q] * vacuumCorrelator[m,o,p,q]
+                    result += M2[a,i] * M2[b,j]  * M2[c,k] * M2[d,l] * bBlock[i,j,k,l]
+    return 0.25*r0(T,theta)*result
+
+
+starttime = timeit.default_timer()
+print(genWicks4Full(M1,M2,1,2,3,4))
+endtime = timeit.default_timer()
+print("Time to compute:",endtime - starttime)
+
+print(vacuum.T @ U(np.linalg.inv(M1)) @ space.majorana[1] @ space.majorana[2] @ space.majorana[3] @ space.majorana[4] @ U(M2) @ vacuum)
+
+"""comparison = np.zeros((space.dimension,space.dimension),dtype="complex_")
+for i in range(2*n):
+    for j in range(2*n):
+        for k in range(2*n):
+            for l in range(2*n):
+                comparison += M1[1,i] * M1[2,j] * M1[3,k] * M1[4,l] * space.majorana[i] @ space.majorana[j] @ space.majorana[k] @ space.majorana[l]
+
+print(np.linalg.norm(space.majorana[1] @ space.majorana[2] @ space.majorana[3] @ space.majorana[4] @ U(M1) -  U(M1) @ comparison))
+"""
