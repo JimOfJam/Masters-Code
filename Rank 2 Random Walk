@@ -1,0 +1,221 @@
+import numpy as np
+import scipy.linalg as sp
+import scipy.sparse as sparse
+import timeit 
+
+n = 8
+t = 1
+U = 1
+
+Omega0 = np.block([[np.zeros((n,n)),np.eye(n)],[-np.eye(n),np.zeros((n,n))]])
+Omega0 = sparse.csc_matrix(Omega0)
+J0 = Omega0
+I = sparse.csc_matrix(np.eye(2*n))
+iden = sparse.csc_matrix(np.eye(n))
+x = range(2*n)
+
+with open("correlatorData/n=" + str(n) + ".txt",'r') as file:
+    exec(file.read())
+
+
+# Helps us index the Majorana modes correctly.
+def index(j,sigma,k):
+    if sigma == "up":
+        sigma = 1
+    elif sigma == "down":
+        sigma = 0
+    if k == "q":
+        k = 0
+    elif k == "p":
+        k = 1
+    return int(j % (n/2) + sigma*(n/2) + k*n)
+
+# The h1_{ab} matrix which contracts with the Majorana modes to produce the quadratic part of the Hamiltonian
+rows = []
+columns = []
+data = []
+for j in range(int(n/2)):
+    for sigma in range(2):
+        rows += [index(j,sigma,0),index(j,sigma,1),index(j+1,sigma,0),index(j+1,sigma,1)]
+        columns += [index(j+1,sigma,1),index(j+1,sigma,0),index(j,sigma,1),index(j,sigma,0)]
+        data += [-t,t,-t,t]
+h1 = sparse.csc_array((data,(rows,columns)),shape=(2*n,2*n))
+
+# The h2_{abcd} tensor that produces the quartic part of the Hamiltonian
+sparseh2 = []
+for k in range(int(n/2)):
+    sparseh2 += [
+        [index(k,'up','q'),index(k,'up','q'),index(k,'down','q'),index(k,'down','q'),1.0],
+        [index(k,'up','q'),index(k,'up','q'),index(k,'down','q'),index(k,'down','p'),1.0j],
+        [index(k,'up','q'),index(k,'up','q'),index(k,'down','p'),index(k,'down','q'),-1.0j],
+        [index(k,'up','q'),index(k,'up','q'),index(k,'down','p'),index(k,'down','p'),1.0],
+        [index(k,'up','q'),index(k,'up','p'),index(k,'down','q'),index(k,'down','q'),1.0j],
+        [index(k,'up','q'),index(k,'up','p'),index(k,'down','q'),index(k,'down','p'),-1.0],
+        [index(k,'up','q'),index(k,'up','p'),index(k,'down','p'),index(k,'down','q'),1.0],
+        [index(k,'up','q'),index(k,'up','p'),index(k,'down','p'),index(k,'down','p'),1.0j],
+        [index(k,'up','p'),index(k,'up','q'),index(k,'down','q'),index(k,'down','q'),-1.0j],
+        [index(k,'up','p'),index(k,'up','q'),index(k,'down','q'),index(k,'down','p'),1.0],
+        [index(k,'up','p'),index(k,'up','q'),index(k,'down','p'),index(k,'down','q'),-1.0],
+        [index(k,'up','p'),index(k,'up','q'),index(k,'down','p'),index(k,'down','p'),-1.0j],
+        [index(k,'up','p'),index(k,'up','p'),index(k,'down','q'),index(k,'down','q'),1.0],
+        [index(k,'up','p'),index(k,'up','p'),index(k,'down','q'),index(k,'down','p'),1.0j],
+        [index(k,'up','p'),index(k,'up','p'),index(k,'down','p'),index(k,'down','q'),-1.0j],
+        [index(k,'up','p'),index(k,'up','p'),index(k,'down','p'),index(k,'down','p'),1.0]
+    ]
+
+# Wick's theorem for 4-point functions
+def wicks4(C,a,b,c,d):
+    return C[a,b]*C[c,d] - C[a,c]*C[b,d] + C[a,d]*C[b,c]
+                
+# Takes the Cartan decomposition of a matrix. Verified.
+def cartan(M):
+    T = sp.sqrtm(-Omega0 @ M.T @ Omega0 @ M).real
+    u = T @ np.linalg.inv(M)
+    theta = -0.25 * np.trace(Omega0 @ sp.logm(u))
+    return [T,theta]
+
+# Random element of O(2n,R)
+def groupElem():
+    A = np.random.rand(2*n,2*n)
+    A = A - A.T
+    M = sp.expm(A)
+    return M
+
+# Converts a real matrix to a complex matrix
+def cMatrix(K):
+    K1 = K[0:n,0:n]
+    K2 = K[0:n,n:2*n]
+    return K1 + 1j * K2
+
+# Takes the complex determinant of a matrix. Verified
+def cDet(X):
+    return np.linalg.det(cMatrix(X))
+
+# Executes Equation (82) in the draft paper. Verified.
+def ip(M1,M2):
+    deltaM = np.linalg.inv(M1) @ M2
+    return np.sqrt(cDet((deltaM - (J0 @ deltaM @ J0))/2))
+
+# Varies Omega randomly. The larger the value of epsilon, the larger the variation.
+def vary(Omega,epsilon):
+    K = np.random.rand(2*n,2*n)
+    K = K - K.T 
+    return sp.expm(epsilon*K) @ Omega @ sp.expm(epsilon*K.T)
+
+# Calculates the matrix A+ defined by Equation (C26)
+def APlus(T):
+    a = 0.5*sp.tanhm(sp.logm(T))
+    return a[0:n,0:n] + 1j * a[0:n,n:2*n]
+
+# Calculates the matrix R in Equation (C29)
+def R(M):
+    decomp = cartan(M)
+    AP = APlus(decomp[0])
+    APC = np.conjugate(AP)
+    A0 = 0.25*sp.logm(iden - 4 * AP @ np.conjugate(AP))
+    return [sparse.csc_matrix(np.block([[iden-APC,-1j*APC],[-1j*APC,iden+APC]])),np.exp(-1j*decomp[1]-np.trace(A0))]
+
+# A faster version of generalised Wick's theorem for 2-point functions. Verified.
+def genWicks2(M1,M2,a,b):
+    deltaM = np.linalg.inv(M1) @ M2
+    [R1,r0] = R(deltaM)
+    A = M2 @ R1
+    result = 0
+    for i in range(2*n):
+        for j in range(2*n):
+            result += A[a,i]*A[b,j]*Omega0[i,j]
+    return 0.5j*r0*result
+
+def genWicks4(M1,M2,a,b,c,d):
+    deltaM = np.linalg.inv(M1) @ M2
+    [R1,r0] = R(deltaM)
+    A = M2 @ R1 
+    return r0 * np.sum([A[a,row[0]] * A[b,row[1]] * A[c,row[2]] * A[d,row[3]] * row[4] for row in vacuumCorrelator])
+
+def expH(x):
+    C = 0.5*(np.eye(2*n)+1.0j*x)
+    # Constant shift 
+    value = 0
+    # Quadratic contribution
+    value += 0.25*np.trace(h1 @ x)
+    # Quartic contribution
+    newpart = 0
+    for row in sparseh2:
+        a = row[0]; b = row[1]; c = row[2]; d = row[3]; h = row[4]
+        newpart += 0.25*h*(C[a][b]*C[c][d] - C[a][c]*C[b][d] + C[a][d]*C[b][c])
+    value += newpart 
+    return value.real
+
+# Evaluates the expression <J1|H1|J2>. Verified. 
+def J1H1J2(M1,M2):
+    result = 0
+    for i in range(2*n):
+        for j in range(2*n):
+            result += h1[i,j]*genWicks2(M1,M2,i,j)
+    return 0.5j*result
+
+# Evaluates the expression <J1|H2|J2>. 
+def J1H2J2(M1,M2):
+    result = 0
+    for row in sparseh2:
+        result += row[4]*genWicks4(M1,M2,row[0],row[1],row[2],row[3])
+    return 0.25*result
+
+def J1HJ2(M1,M2):
+    return J1H1J2(M1,M2) + J1H2J2(M1,M2)
+
+def vary(x,K,epsilon):
+    return sp.expm(epsilon*K) @ x @ sp.expm(epsilon*(K.T))
+
+def randomise(x,epsilon):
+    K = np.random.rand(2*n,2*n)
+    K = K-K.T
+    return vary(x,K,epsilon)
+
+# Objective function. This gives us the minimum energy attained by H on the span of |J1> and |J2>. 
+def f(a,b,c):
+    return 0.5*(a+c-np.sqrt((a+c)**2 - 4*(a*c - np.abs(b)**2)))
+
+M1 = groupElem()
+M2 = groupElem()
+
+P = np.linalg.inv(M1) @ Omega0 @ M1
+Q = np.linalg.inv(M2) @ Omega0 @ M2
+
+a = expH(P)
+b = J1HJ2(P,Q)*ip(P,Q)
+c = expH(Q)
+
+print("Starting energy:",f(a,b,c))
+epsilon1 = 10
+epsilon2 = 10
+
+for i in range(50):
+    if epsilon1 > epsilon2:
+        flag = 0
+        while flag == 0:
+            candidate = randomise(P,epsilon1)
+            aCandidate = expH(candidate)
+            bCandidate = J1HJ2(candidate,Q)*ip(candidate,Q)
+            if f(aCandidate,bCandidate,c) < f(a,b,c):
+                P = candidate
+                a = aCandidate
+                b = bCandidate
+                flag = 1
+            else:
+                epsilon1 = epsilon1*0.9995
+
+    else:
+        flag = 0
+        while flag == 0:
+            candidate = randomise(Q,epsilon2)
+            cCandidate = expH(candidate)
+            bCandidate = J1HJ2(P,candidate)*ip(P,candidate)
+            if f(a,bCandidate,cCandidate) < f(a,b,c):
+                P = candidate
+                c = cCandidate
+                b = bCandidate
+                flag = 1
+            else:
+                epsilon2 = epsilon2*0.995
+    print(f(a,b,c),epsilon1,epsilon2)
