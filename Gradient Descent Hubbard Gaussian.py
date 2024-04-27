@@ -9,9 +9,10 @@ from sympy.combinatorics import Permutation, PermutationGroup
 i = 0+1j
 
 
-n = 4
+n = 8
 t = 1
-U = 10
+U = 0
+
 
 
 blank = "                                                                                                    "
@@ -132,32 +133,44 @@ def gradient(x):
     return grad
 
 def vary(x,K,epsilon):
-    return g.prodN([scipy.linalg.expm(epsilon*K),x,scipy.linalg.expm(epsilon*(K.T))])
+    return scipy.linalg.expm(epsilon*K) @ x @ scipy.linalg.expm(epsilon*(K.T))
+
+def grad2pt(x,h):
+    hinv = 1/h 
+    grad = np.zeros(lieDim,dtype="complex_")
+    fx0 = expectationValue(x)
+    print(fx0)
+    for j in range(lieDim):
+        fx1 = expectationValue(vary(x,basisK[j].toarray(),h))
+        print(fx1)
+        grad[j] = hinv*(fx1-fx0)
+    return grad
+
 
 # Omega is the standard symplectic form
 Omega = np.block([[np.zeros((n,n)),np.eye(n)],[-np.eye(n),np.zeros((n,n))]])
 # K is a random Lie algebra element
 K = RtoT(np.random.rand(lieDim))
-#Omega is the corresponding random group element
+# Vary Omega in the direction of K
 Omega = vary(Omega,K,100)
 
 energies = []
 energy = expectationValue(Omega)
 print("Initial energy: ",energy)
 epsilon = 10
-maxIterations = 20
+maxIterations = 1000
 
 for j in range(maxIterations):
-    grad = gradient(Omega).real
+    grad = grad2pt(Omega,epsilon)
     candidate = vary(Omega,-RtoT(grad),epsilon)
     candidateEnergy = expectationValue(candidate)
-    print(candidateEnergy)
+    print(candidateEnergy,epsilon)
 
     if candidateEnergy < energy:
         Omega = candidate
         energy = candidateEnergy
     else:
-        epsilon = epsilon*0.5
+        epsilon = epsilon*0.95
     
     energies.append(energy)
 
